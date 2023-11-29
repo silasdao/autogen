@@ -187,7 +187,7 @@ def split_files_to_chunks(
 
 def get_files_from_dir(dir_path: str, types: list = TEXT_FORMATS, recursive: bool = True):
     """Return a list of all the files in a given directory."""
-    if len(types) == 0:
+    if not types:
         raise ValueError("types cannot be empty.")
     types = [t[1:].lower() if t.startswith(".") else t.lower() for t in set(types)]
     types += [t.upper() for t in types]
@@ -290,10 +290,10 @@ def query_vector_db(
     collection = client.get_collection(collection_name)
     embedding_function = ef.SentenceTransformerEmbeddingFunction(embedding_model)
     query_embeddings = embedding_function(query_texts)
-    # Query/search n most similar results. You can also .get by id
-    results = collection.query(
+    return collection.query(
         query_embeddings=query_embeddings,
         n_results=n_results,
-        where_document={"$contains": search_string} if search_string else None,  # optional filter
+        where_document={"$contains": search_string}
+        if search_string
+        else None,  # optional filter
     )
-    return results

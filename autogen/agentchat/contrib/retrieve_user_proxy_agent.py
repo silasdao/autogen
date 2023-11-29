@@ -69,11 +69,7 @@ def _is_termination_msg_retrievechat(message):
         if message is None:
             return False
     cb = extract_code(message)
-    contain_code = False
-    for c in cb:
-        if c[0] == "python":
-            contain_code = True
-            break
+    contain_code = any(c[0] == "python" for c in cb)
     return not contain_code
 
 
@@ -250,43 +246,46 @@ class RetrieveUserProxyAgent(UserProxyAgent):
         update_context_case2 = (
             self.customized_answer_prefix and self.customized_answer_prefix not in message.get("content", "").upper()
         )
-        if (update_context_case1 or update_context_case2) and self.update_context:
-            print(colored("Updating context and resetting conversation.", "green"), flush=True)
-            # extract the first sentence in the response as the intermediate answer
-            _message = message.get("content", "").split("\n")[0].strip()
-            _intermediate_info = re.split(r"(?<=[.!?])\s+", _message)
-            self._intermediate_answers.add(_intermediate_info[0])
+        if (
+            not update_context_case1
+            and not update_context_case2
+            or not self.update_context
+        ):
+            return False, None
+        print(colored("Updating context and resetting conversation.", "green"), flush=True)
+        # extract the first sentence in the response as the intermediate answer
+        _message = message.get("content", "").split("\n")[0].strip()
+        _intermediate_info = re.split(r"(?<=[.!?])\s+", _message)
+        self._intermediate_answers.add(_intermediate_info[0])
 
-            if update_context_case1:
-                # try to get more context from the current retrieved doc results because the results may be too long to fit
-                # in the LLM context.
-                doc_contents = self._get_context(self._results)
+        if update_context_case1:
+            # try to get more context from the current retrieved doc results because the results may be too long to fit
+            # in the LLM context.
+            doc_contents = self._get_context(self._results)
 
-                # Always use self.problem as the query text to retrieve docs, but each time we replace the context with the
-                # next similar docs in the retrieved doc results.
-                if not doc_contents:
-                    for _tmp_retrieve_count in range(1, 5):
-                        self._reset(intermediate=True)
-                        self.retrieve_docs(self.problem, self.n_results * (2 * _tmp_retrieve_count + 1))
-                        doc_contents = self._get_context(self._results)
-                        if doc_contents:
-                            break
-            elif update_context_case2:
-                # Use the current intermediate info as the query text to retrieve docs, and each time we append the top similar
-                # docs in the retrieved doc results to the context.
-                for _tmp_retrieve_count in range(5):
+            # Always use self.problem as the query text to retrieve docs, but each time we replace the context with the
+            # next similar docs in the retrieved doc results.
+            if not doc_contents:
+                for _tmp_retrieve_count in range(1, 5):
                     self._reset(intermediate=True)
-                    self.retrieve_docs(_intermediate_info[0], self.n_results * (2 * _tmp_retrieve_count + 1))
-                    self._get_context(self._results)
-                    doc_contents = "\n".join(self._doc_contents)  # + "\n" + "\n".join(self._intermediate_answers)
+                    self.retrieve_docs(self.problem, self.n_results * (2 * _tmp_retrieve_count + 1))
+                    doc_contents = self._get_context(self._results)
                     if doc_contents:
                         break
+        elif update_context_case2:
+            # Use the current intermediate info as the query text to retrieve docs, and each time we append the top similar
+            # docs in the retrieved doc results to the context.
+            for _tmp_retrieve_count in range(5):
+                self._reset(intermediate=True)
+                self.retrieve_docs(_intermediate_info[0], self.n_results * (2 * _tmp_retrieve_count + 1))
+                self._get_context(self._results)
+                doc_contents = "\n".join(self._doc_contents)  # + "\n" + "\n".join(self._intermediate_answers)
+                if doc_contents:
+                    break
 
-            self.clear_history()
-            sender.clear_history()
-            return True, self._generate_message(doc_contents, task=self._task)
-        else:
-            return False, None
+        self.clear_history()
+        sender.clear_history()
+        return True, self._generate_message(doc_contents, task=self._task)
 
     def retrieve_docs(self, problem: str, n_results: int = 20, search_string: str = ""):
         if not self._collection or self._get_or_create:
@@ -331,8 +330,7 @@ class RetrieveUserProxyAgent(UserProxyAgent):
         self.problem = problem
         self.n_results = n_results
         doc_contents = self._get_context(self._results)
-        message = self._generate_message(doc_contents, self._task)
-        return message
+        return self._generate_message(doc_contents, self._task)
 
     def run_code(self, code, **kwargs):
         lang = kwargs.get("lang", None)
@@ -344,14 +342,13 @@ class RetrieveUserProxyAgent(UserProxyAgent):
             )
         if self._ipython is None or lang != "python":
             return super().run_code(code, **kwargs)
-        else:
-            result = self._ipython.run_cell(code)
-            log = str(result.result)
-            exitcode = 0 if result.success else 1
-            if result.error_before_exec is not None:
-                log += f"\n{result.error_before_exec}"
-                exitcode = 1
-            if result.error_in_exec is not None:
-                log += f"\n{result.error_in_exec}"
-                exitcode = 1
-            return exitcode, log, None
+        result = self._ipython.run_cell(code)
+        log = str(result.result)
+        exitcode = 0 if result.success else 1
+        if result.error_before_exec is not None:
+            log += f"\n{result.error_before_exec}"
+            exitcode = 1
+        if result.error_in_exec is not None:
+            log += f"\n{result.error_in_exec}"
+            exitcode = 1
+        return exitcode, log, None
