@@ -122,8 +122,7 @@ def config_list_openai_aoai(
         if exclude != "openai"
         else []
     )
-    config_list = openai_config + aoai_config
-    return config_list
+    return openai_config + aoai_config
 
 
 def config_list_from_models(
@@ -229,8 +228,7 @@ def config_list_from_json(
     Returns:
         list: A list of configs for openai api calls.
     """
-    json_str = os.environ.get(env_or_file)
-    if json_str:
+    if json_str := os.environ.get(env_or_file):
         config_list = json.loads(json_str)
     else:
         try:
